@@ -3,16 +3,28 @@
 
 void usage(const char * arg0) {
   printf("Usage:\n");
-  printf("%s [-f formatstring] [name to search]\n",arg0);
+  printf("%s [-h] [-f formatstring] [name to search]\n\n",arg0);
+  printf("  -h prints this usage and exits\n\n");
+  printf("  the name may be one of the following:\n");
+  printf("    First\n");
+  printf("    Last\n");
+  printf("    First Last\n");
+  printf("    Last First\n\n");
+  printf("  the format string may include one of the following:\n");
+  printf("    %%f - first name\n");
+  printf("    %%l - last name\n");
+  printf("    %%b - birthday\n");
 }
 
 int main (int argc, const char * argv[]) {
   NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
   
   // insert code here...
-//  usage(argv[0]);
-//  [pool drain];
-//  return 0;
+  NSDictionary *formatBindings = [NSDictionary dictionaryWithObjectsAndKeys: 
+                                  kABFirstNameProperty, @"%f",
+                                  kABLastNameProperty, @"%l",
+                                  kABBirthdayProperty, @"%b",
+                                  nil];
   
   NSMutableArray *args = [NSMutableArray arrayWithCapacity:argc];
   for (int i = 0; i < argc; i++) {
@@ -20,6 +32,11 @@ int main (int argc, const char * argv[]) {
   }
   NSString *formatString = @"%f %l %b";
   for (int i = 1; i < [args count]; i++) {
+    if ([[args objectAtIndex:i] isEqualToString:@"-h"]) {
+      usage(argv[0]);
+      [pool drain];
+      return 0;
+    }
     if ([[args objectAtIndex:i] isEqualToString:@"-f"]) {
       formatString = [args objectAtIndex:i+1];
     }
@@ -69,7 +86,7 @@ int main (int argc, const char * argv[]) {
     searchConstruct = [ABSearchElement searchElementForConjunction:kABSearchOr
                                                           children:[NSArray arrayWithObjects:fl, lf, nil]];
   } else {
-    printf("Only [First] or [Last] or [First Last] or [Last First] name constructs are supported.\n");
+    usage(argv[0]);
     [pool drain];
     return 1;
   }
@@ -77,12 +94,29 @@ int main (int argc, const char * argv[]) {
   NSArray *people = [ab recordsMatchingSearchElement:searchConstruct];
   NSCalendar *gregorian = [[NSCalendar alloc] initWithCalendarIdentifier:NSGregorianCalendar];
   for (ABRecord *person in people) {
-    NSDateComponents *birthday = [gregorian components:(NSMonthCalendarUnit|NSDayCalendarUnit|NSYearCalendarUnit) 
-                                              fromDate:[person valueForProperty:kABBirthdayProperty]];
-    printf("%s %s %s\n",
-           [[person valueForProperty:kABFirstNameProperty] UTF8String],
-           [[person valueForProperty:kABLastNameProperty] UTF8String],
-           [[NSString stringWithFormat:@"%d/%d/%d",[birthday month], [birthday day], [birthday year]] UTF8String]);
+    NSMutableString *stringToPrint = [NSMutableString stringWithString:formatString];
+    for (NSString *key in formatBindings) {
+      if ([formatString rangeOfString:key].length == 0) {
+        continue;
+      }
+      NSString *currentProperty = [formatBindings objectForKey:key];
+      ABPropertyType currentPropertyType = [ABPerson typeOfProperty:currentProperty];
+      NSString *replacementString;
+      if (currentPropertyType == kABStringProperty) {
+        replacementString = [person valueForProperty:currentProperty];
+      } else if ([ABPerson typeOfProperty:currentProperty] == kABDateProperty) {
+        NSDateComponents *date = [gregorian components:(NSMonthCalendarUnit|NSDayCalendarUnit|NSYearCalendarUnit)
+                                              fromDate:[person valueForProperty:currentProperty]];
+        replacementString = [NSString stringWithFormat:@"%d/%d/%d",[date month],[date day],[date year]];
+      } else {
+        replacementString = key;
+      }
+      [stringToPrint replaceOccurrencesOfString:key 
+                                     withString:replacementString
+                                        options:NSLiteralSearch
+                                          range:NSMakeRange(0, [stringToPrint length])];
+    }
+    printf("%s\n",[stringToPrint UTF8String]);
   }
   
   [pool drain];
